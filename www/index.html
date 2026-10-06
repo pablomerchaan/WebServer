@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>webserv</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <h1>webserv funciona</h1>
+
+  <h2>Páginas estáticas</h2>
+  <ul>
+    <li><a href="/tours/">/tours/ (index tours1.html)</a></li>
+    <li><a href="/uploads/">/uploads/ (autoindex)</a></li>
+    <li><a href="/red">/red (redirección a /tours)</a></li>
+    <li><a href="/kapouet/pouic/toto.html">/kapouet/... (alias a www/kapouet)</a></li>
+    <li><a href="/no-existe">Página 404 personalizada</a></li>
+  </ul>
+
+  <h2>CGI</h2>
+  <ul>
+    <li><a href="/cgi-bin/">/cgi-bin/ (index time.py)</a></li>
+    <li><a href="/cgi-bin/helloworld.py?nombre=42">helloworld.py?nombre=42</a></li>
+    <li><a href="/cgi-bin/hello.sh/extra/path">hello.sh con PATH_INFO</a></li>
+    <li><a href="/cgi-bin/loop.py">loop.py (bucle infinito: 504 tras el timeout)</a></li>
+  </ul>
+  <form action="/cgi-bin/form.py" method="post">
+    <input name="mensaje" placeholder="Mensaje para el CGI">
+    <button>POST al CGI</button>
+  </form>
+
+  <h2>Subir fichero</h2>
+  <form action="/uploads" method="post" enctype="multipart/form-data">
+    <input type="file" name="fichero">
+    <button>Subir</button>
+  </form>
+
+  <h2>Borrar fichero</h2>
+  <input id="borrar" placeholder="nombre en /uploads/">
+  <button onclick="borrar()">DELETE</button>
+  <p id="resultado"></p>
+  <script>
+    function borrar() {
+      var nombre = document.getElementById('borrar').value;
+      fetch('/uploads/' + encodeURIComponent(nombre), { method: 'DELETE' })
+        .then(function (r) { document.getElementById('resultado').textContent = r.status + ' ' + r.statusText; });
+    }
+  </script>
+</body>
+</html>
