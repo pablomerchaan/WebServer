@@ -1,0 +1,211 @@
+MANUAL CONFIGURATION TESTS
+==========================
+
+Run these commands from the repository root.
+Stop webserv with Ctrl+C before starting the next test.
+
+
+1. HTTP STATUS CODES
+====================
+
+1. Start the server:
+
+   ./webserv tests/configuration/01-status-codes.conf
+
+2. In another terminal, test a successful request:
+
+   curl -i http://127.0.0.1:8101/
+
+   Expected:
+   HTTP/1.1 200 OK
+
+3. Test a missing resource:
+
+   curl -i http://127.0.0.1:8101/does-not-exist
+
+   Expected:
+   HTTP/1.1 404 Not Found
+
+4. Test the configured redirect:
+
+   curl -i http://127.0.0.1:8101/red
+
+   Expected:
+   HTTP/1.1 301 Moved Permanently
+   Location: /
+
+5. Test a method that is not allowed:
+
+   curl -i -X DELETE http://127.0.0.1:8101/readonly/
+
+   Expected:
+   HTTP/1.1 405 Method Not Allowed
+
+Check every status code and reason phrase against RFC 9110 or the MDN HTTP
+status code reference. The reason phrases are implemented in
+src/Utils.cpp, in statusReason().
+
+
+2. MULTIPLE WEBSITES, INTERFACES AND PORTS
+==========================================
+
+1. Start the server:
+
+   ./webserv tests/configuration/02-multiple-sites.conf
+
+2. Test the server listening only on 127.0.0.1:8102:
+
+   curl -i http://127.0.0.1:8102/
+
+3. Test the server listening on all interfaces at port 8103:
+
+   curl -i http://127.0.0.1:8103/
+
+4. Test the configured Host names:
+
+   curl -i -H "Host: local.test" http://127.0.0.1:8102/
+   curl -i -H "Host: all.test" http://127.0.0.1:8103/
+
+Expected: both servers return HTTP/1.1 200 OK.
+The host and port are configured with host and listen.
+
+
+3. CUSTOM 404 ERROR PAGE
+========================
+
+1. Open and modify this existing project file:
+
+   www/error_pages/404.html
+
+   For example, add:
+
+   <p>MY CUSTOM 404 PAGE</p>
+
+2. Start the server:
+
+   ./webserv tests/configuration/03-custom-error-page.conf
+
+3. Request a file that does not exist:
+
+   curl -i http://127.0.0.1:8104/missing
+
+Expected:
+HTTP/1.1 404 Not Found
+
+The response body must contain the text added to www/error_pages/404.html.
+The body changes, but the status code remains 404.
+
+
+4. CLIENT REQUEST BODY SIZE
+===========================
+
+1. Start the server:
+
+   ./webserv tests/configuration/04-body-limit.conf
+
+The configuration sets:
+
+   client_max_body_size 20;
+
+2. Send a body shorter than 20 bytes:
+
+   curl -i -X POST -H "Content-Type: text/plain" \
+     --data "short body" http://127.0.0.1:8105/
+
+Expected: the request is not rejected with 413.
+
+3. Send a body longer than 20 bytes:
+
+   curl -i -X POST -H "Content-Type: text/plain" \
+     --data "THIS BODY IS LONGER THAN TWENTY BYTES" \
+     http://127.0.0.1:8105/
+
+Expected:
+HTTP/1.1 413 Content Too Large
+
+
+5. ROUTES TO DIFFERENT DIRECTORIES
+===================================
+
+1. Start the server:
+
+   ./webserv tests/configuration/05-routes.conf
+
+2. Test the /tours route:
+
+   curl -i http://127.0.0.1:8106/tours/
+   curl -i http://127.0.0.1:8106/tours/tours2.html
+
+Expected: the existing files under www/tours are served.
+
+3. Test the /kapouet alias route:
+
+   curl -i http://127.0.0.1:8106/kapouet/pouic/toto.html
+
+Expected: the existing file www/kapouet/pouic/toto.html is served.
+
+
+6. DEFAULT FILE FOR A DIRECTORY
+===============================
+
+1. Start the server:
+
+   ./webserv tests/configuration/06-index-files.conf
+
+2. Request the root directory:
+
+   curl -i http://127.0.0.1:8107/
+
+Expected: the existing file www/index.html is served.
+
+3. Request the tours directory:
+
+   curl -i http://127.0.0.1:8107/tours/
+
+Expected: the existing file www/tours/tours1.html is served because the
+location overrides the default index file.
+
+
+7. ALLOWED METHODS FOR A ROUTE
+==============================
+
+1. Start the server:
+
+   ./webserv tests/configuration/07-allowed-methods.conf
+
+2. Test GET on /tours:
+
+   curl -i http://127.0.0.1:8108/tours/
+
+Expected:
+HTTP/1.1 200 OK
+
+3. Test HEAD on /tours:
+
+   curl -i -X HEAD http://127.0.0.1:8108/tours/
+
+Expected:
+HTTP/1.1 200 OK
+No response body.
+
+4. Test DELETE where it is not allowed:
+
+   curl -i -X DELETE http://127.0.0.1:8108/tours/
+
+Expected:
+HTTP/1.1 405 Method Not Allowed
+Allow: GET, HEAD
+
+5. Create a temporary file in the existing upload directory:
+
+   printf 'temporary file\n' > www/uploads/delete-me.txt
+
+6. Test DELETE where it is allowed:
+
+   curl -i -X DELETE http://127.0.0.1:8108/uploads/delete-me.txt
+
+Expected:
+HTTP/1.1 204 No Content
+
+The file www/uploads/delete-me.txt should have been removed.
+Recreate it with the printf command if you want to repeat the test.

@@ -5,14 +5,10 @@
 #include <vector>
 #include <sys/stat.h>
 
-/* ======================================================================
- *  Strings
- * ====================================================================== */
-
 std::string toLower(const std::string& str)
 {
 	std::string result(str);
-	// El cast a unsigned char evita comportamiento indefinido con chars negativos
+
 	for (size_t i = 0; i < result.size(); ++i)
 		result[i] = std::tolower(static_cast<unsigned char>(result[i]));
 	return result;
@@ -22,7 +18,7 @@ std::string trim(const std::string& str)
 {
 	size_t start = str.find_first_not_of(" \t\r\n");
 	if (start == std::string::npos)
-		return "";  // solo había espacios
+		return "";
 	size_t end = str.find_last_not_of(" \t\r\n");
 	return str.substr(start, end - start + 1);
 }
@@ -33,11 +29,6 @@ bool endsWith(const std::string& str, const std::string& suffix)
 		   str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0;
 }
 
-/*
- * Une dos trozos de ruta con exactamente una '/' entre ellos:
- *   joinPath("www",  "a.html")  -> "www/a.html"
- *   joinPath("www/", "/a.html") -> "www/a.html"
- */
 std::string joinPath(const std::string& base, const std::string& path)
 {
 	if (base.empty())
@@ -47,16 +38,12 @@ std::string joinPath(const std::string& base, const std::string& path)
 	bool base_slash = base[base.size() - 1] == '/';
 	bool path_slash = path[0] == '/';
 	if (base_slash && path_slash)
-		return base + path.substr(1);  // sobra una barra
+		return base + path.substr(1);
 	if (!base_slash && !path_slash)
-		return base + "/" + path;      // falta una barra
+		return base + "/" + path;
 	return base + path;
 }
 
-/*
- * Extensión del último segmento de la ruta, incluyendo el punto.
- * "/dir.v2/file" no tiene extensión: el punto está en un directorio.
- */
 std::string getExtension(const std::string& path)
 {
 	size_t slash = path.rfind('/');
@@ -66,11 +53,6 @@ std::string getExtension(const std::string& path)
 	return path.substr(dot);
 }
 
-/* ======================================================================
- *  HTTP
- * ====================================================================== */
-
-// Frase estándar asociada a cada código (va en la primera línea de la respuesta)
 std::string statusReason(int code)
 {
 	switch (code)
@@ -104,12 +86,6 @@ std::string statusReason(int code)
 	}
 }
 
-/*
- * Tipo MIME según la extensión: va en la cabecera Content-Type y le dice al
- * navegador cómo interpretar el contenido (mostrar HTML, aplicar CSS, pintar
- * una imagen...). Si no lo conocemos, "application/octet-stream" = binario
- * genérico (el navegador lo descargará).
- */
 std::string mimeType(const std::string& path)
 {
 	std::string ext = toLower(getExtension(path));
@@ -132,7 +108,6 @@ std::string mimeType(const std::string& path)
 	return "application/octet-stream";
 }
 
-// Ej: "Tue, 06 Oct 2026 11:08:00 GMT" (formato obligatorio de la cabecera Date)
 std::string httpDate()
 {
 	char buffer[64];
@@ -141,7 +116,6 @@ std::string httpDate()
 	return buffer;
 }
 
-// Valor de un dígito hexadecimal, o -1 si no lo es
 static int hexValue(char c)
 {
 	if (c >= '0' && c <= '9') return c - '0';
@@ -150,11 +124,6 @@ static int hexValue(char c)
 	return -1;
 }
 
-/*
- * En una URL los caracteres especiales van codificados como %XX (hex):
- * "mi%20fichero.txt" -> "mi fichero.txt". Rechazamos "%" incompletos o no
- * hexadecimales, y "%00" (un byte nulo cortaría la ruta al pasarla a C).
- */
 bool urlDecode(const std::string& in, std::string& out)
 {
 	out.clear();
@@ -180,14 +149,6 @@ bool urlDecode(const std::string& in, std::string& out)
 	return true;
 }
 
-/*
- * Normaliza una ruta trabajando segmento a segmento (como una pila):
- *   "."  -> se ignora
- *   ".." -> quita el segmento anterior; si no hay ninguno, la ruta intenta
- *           salir de la raíz -> devolvemos false (la petición será un 400)
- *   ""   -> (de "//") se ignora
- * "/a/./b/../c/" -> "/a/c/"
- */
 bool normalizePath(const std::string& in, std::string& out)
 {
 	std::vector<std::string> segments;
@@ -208,7 +169,7 @@ bool normalizePath(const std::string& in, std::string& out)
 			segments.push_back(segment);
 		start = slash + 1;
 	}
-	// Reconstruimos la ruta limpia
+
 	out = "/";
 	for (size_t i = 0; i < segments.size(); ++i)
 	{
@@ -216,14 +177,12 @@ bool normalizePath(const std::string& in, std::string& out)
 		if (i + 1 < segments.size())
 			out += "/";
 	}
-	// Conservamos la '/' final: sirve para distinguir "/tours" de "/tours/"
-	// (al primero le mandaremos una redirección al segundo)
+
 	if (segments.size() > 0 && in.size() > 1 && in[in.size() - 1] == '/')
 		out += "/";
 	return true;
 }
 
-// Evita que un nombre de fichero como "<script>" se interprete como HTML
 std::string htmlEscape(const std::string& str)
 {
 	std::string result;
@@ -238,11 +197,6 @@ std::string htmlEscape(const std::string& str)
 	return result;
 }
 
-/* ======================================================================
- *  Sistema de ficheros
- * ====================================================================== */
-
-// stat() rellena información del fichero; S_ISDIR/S_ISREG miran su tipo
 bool isDirectory(const std::string& path)
 {
 	struct stat info;
@@ -255,10 +209,6 @@ bool isRegularFile(const std::string& path)
 	return stat(path.c_str(), &info) == 0 && S_ISREG(info.st_mode);
 }
 
-/*
- * Lee un fichero entero en modo binario (para imágenes, PDFs, etc.).
- * El subject permite leer ficheros normales del disco sin pasar por poll().
- */
 bool readFile(const std::string& path, std::string& content)
 {
 	std::ifstream file(path.c_str(), std::ios::in | std::ios::binary);
@@ -270,7 +220,6 @@ bool readFile(const std::string& path, std::string& content)
 	return true;
 }
 
-// Página de error por defecto (el subject exige tenerlas si no se configuran)
 std::string defaultErrorPage(int code)
 {
 	std::string status = toString(code) + " " + statusReason(code);

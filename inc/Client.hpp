@@ -8,24 +8,6 @@
 #include "HttpRequest.hpp"
 #include "Server.hpp"
 
-/*
- * Client: una conexión TCP abierta con un navegador/cliente.
- *
- * Cada conexión pasa por estos estados (y vuelve a empezar con keep-alive):
- *
- *        ┌──────────────────────────────────────────────────┐
- *        v                                                  │ keep-alive
- *    READING ──(petición completa)──> WRITING ──(enviado)───┘
- *        │                               ^          └──(Connection: close)──> cerrar
- *        └──(es un CGI)──> CGI ──(EOF)───┘
- *
- *   READING: poll vigila POLLIN del socket; se van acumulando bytes en _request
- *   CGI:     poll vigila las pipes del script, no el socket
- *   WRITING: poll vigila POLLOUT del socket; se envía _write_buffer a trozos
- *
- * Los métodos on*() los llama el ServerManager cuando poll() avisa de que un
- * fd está listo. Cada uno hace UNA sola operación de lectura/escritura.
- */
 class Client
 {
 public:
@@ -37,25 +19,24 @@ public:
     };
 
 private:
-    int _fd;                                   // socket de la conexión
-    std::string _address;                      // IP del cliente
-    int _port;                                 // puerto local por el que conectó
-    const std::vector<const Server*>& _servers;// servers que escuchan en ese host:puerto
-    const Server* _server;                     // el elegido para la petición actual
+    int _fd;
+    std::string _address;
+    int _port;
+    const std::vector<const Server*>& _servers;
+    const Server* _server;
     State _state;
-    HttpRequest _request;                      // petición en curso (parser incremental)
-    std::string _write_buffer;                 // respuesta ya serializada
-    size_t _write_offset;                      // cuánto se ha enviado ya
-    bool _keep_alive;                          // ¿seguir abierta tras responder?
-    Cgi* _cgi;                                 // CGI en ejecución (NULL si no hay)
-    std::time_t _last_activity;                // para el timeout de inactividad
+    HttpRequest _request;
+    std::string _write_buffer;
+    size_t _write_offset;
+    bool _keep_alive;
+    Cgi* _cgi;
+    std::time_t _last_activity;
 
-    // No copiable: posee un socket y un CGI
     Client(const Client&);
     Client& operator=(const Client&);
 
-    void processInput();   // hacer avanzar el parser y actuar según su estado
-    void dispatch();       // petición completa -> RequestHandler
+    void processInput();
+    void dispatch();
     void queueResponse(const HttpResponse& response, bool keep_alive);
     void queueError(int code);
     void finishCgi(int error_code);
@@ -63,18 +44,17 @@ private:
 public:
     Client(int fd, const std::string& address, int port,
            const std::vector<const Server*>& servers);
-    ~Client();  // cierra el socket y para el CGI si lo hay
+    ~Client();
 
     int getFd() const;
     State getState() const;
     Cgi* getCgi() const;
 
-    // Devuelven false cuando hay que cerrar la conexión
-    bool onReadable();                 // socket con datos -> un recv()
-    bool onWritable();                 // socket con hueco -> un send()
+    bool onReadable();
+    bool onWritable();
     bool checkTimeout(std::time_t now);
-    void onCgiWritable();              // pipe stdin del CGI con hueco -> un write()
-    void onCgiReadable();              // pipe stdout del CGI con datos -> un read()
+    void onCgiWritable();
+    void onCgiReadable();
 };
 
 #endif

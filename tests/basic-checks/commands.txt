@@ -1,0 +1,182 @@
+BASIC CHECKS
+===========
+
+These checks use the existing configuration and files from the project.
+Run every command from the repository root.
+
+Start the server in one terminal:
+
+    ./webserv confs/default.conf
+
+Use another terminal for the requests. Stop the server with Ctrl+C when
+you have finished.
+
+
+1. GET REQUEST
+==============
+
+Request the existing home page:
+
+    curl -i http://127.0.0.1:8002/
+
+Expected status:
+
+    HTTP/1.1 200 OK
+
+The response body must be the existing www/index.html.
+
+You can also retrieve an existing file directly:
+
+    curl -i http://127.0.0.1:8002/tours/tours2.html
+
+Expected status:
+
+    HTTP/1.1 200 OK
+
+
+2. POST REQUEST
+==============
+
+The /uploads route accepts POST and stores the body in www/uploads.
+Use an existing project file as the prepared request body:
+
+    curl -i -X POST \
+      -H "Content-Type: text/html" \
+      --data-binary @www/tours/tours2.html \
+      http://127.0.0.1:8002/uploads/basic-check-upload.html
+
+Expected status:
+
+    HTTP/1.1 201 Created
+
+The response should mention basic-check-upload.html. The request creates:
+
+    www/uploads/basic-check-upload.html
+
+This is a manual test file. Remove it after the test:
+
+    rm www/uploads/basic-check-upload.html
+
+POST can also be tested through the Python CGI:
+
+    curl -i -X POST \
+      -H "Content-Type: application/x-www-form-urlencoded" \
+      --data "mensaje=hello-from-post" \
+      http://127.0.0.1:8002/cgi-bin/form.py
+
+Expected status:
+
+    HTTP/1.1 200 OK
+
+
+3. DELETE REQUEST
+=================
+
+First create a temporary file in the existing upload directory:
+
+    printf 'file created for DELETE test\n' > www/uploads/basic-check-delete.txt
+
+Delete it through HTTP:
+
+    curl -i -X DELETE \
+      http://127.0.0.1:8002/uploads/basic-check-delete.txt
+
+Expected status:
+
+    HTTP/1.1 204 No Content
+
+Verify that the file is gone:
+
+    test ! -e www/uploads/basic-check-delete.txt && echo "deleted"
+
+DELETE on a directory should not delete the directory. For example:
+
+    curl -i -X DELETE http://127.0.0.1:8002/uploads/
+
+Expected status:
+
+    HTTP/1.1 409 Conflict
+
+
+4. UNKNOWN REQUEST
+==================
+
+The server must not crash when it receives an unsupported HTTP method.
+Test it with curl:
+
+    curl -i -X UNKNOWN http://127.0.0.1:8002/
+
+Expected status:
+
+    HTTP/1.1 501 Not Implemented
+
+Check that the webserv process is still running and that a normal request
+still works:
+
+    curl -i http://127.0.0.1:8002/
+
+Expected status:
+
+    HTTP/1.1 200 OK
+
+
+5. RAW GET WITH TELNET
+======================
+
+Open a TCP connection manually:
+
+    telnet 127.0.0.1 8002
+
+Type the following request, including an empty line after the Host header:
+
+    GET / HTTP/1.1
+    Host: localhost
+
+The final empty line is important: it marks the end of the HTTP headers.
+Expected response:
+
+    HTTP/1.1 200 OK
+
+Exit telnet with Ctrl-] and then type:
+
+    quit
+
+
+6. RAW UNKNOWN REQUEST WITH TELNET
+==================================
+
+Open telnet again:
+
+    telnet 127.0.0.1 8002
+
+Type:
+
+    UNKNOWN / HTTP/1.1
+    Host: localhost
+
+The server must answer with:
+
+    HTTP/1.1 501 Not Implemented
+
+Then verify that the server did not crash:
+
+    curl -i http://127.0.0.1:8002/
+
+Expected status:
+
+    HTTP/1.1 200 OK
+
+
+7. STATUS CHECK SUMMARY
+=======================
+
+    GET existing page             -> 200 OK
+    POST upload                   -> 201 Created
+    POST CGI                      -> 200 OK
+    DELETE existing file          -> 204 No Content
+    DELETE directory              -> 409 Conflict
+    UNKNOWN method                -> 501 Not Implemented
+    Missing resource (optional)   -> 404 Not Found
+
+For every request, inspect the complete response with curl -i. Check both
+the numeric status code and its reason phrase.

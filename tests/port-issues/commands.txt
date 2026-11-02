@@ -1,0 +1,162 @@
+PORT ISSUES
+===========
+
+These tests use the existing files under www/.
+Run every command from the repository root.
+
+The current implementation supports virtual hosts: server blocks that share
+the same host and port are grouped into one listening socket, and the Host
+header selects the server_name. Two separate webserv processes cannot share
+the same interface and port.
+
+
+1. DIFFERENT INTERFACES AND PORTS
+=================================
+
+Start:
+
+    ./webserv tests/port-issues/01-different-ports.conf
+
+The configuration creates:
+
+    127.0.0.1:8109 -> local.test
+    127.0.0.1:8110 -> second.test
+
+Open these URLs in a browser:
+
+    http://127.0.0.1:8109/
+    http://127.0.0.1:8110/
+
+The first website serves the existing www/index.html.
+The second website serves the existing www/tours/tours1.html as its index.
+
+You can also verify the response headers and body with:
+
+    curl -i http://127.0.0.1:8109/
+    curl -i http://127.0.0.1:8110/
+
+Expected:
+
+    8109 -> HTTP/1.1 200 OK and the main webserv page
+    8110 -> HTTP/1.1 200 OK and the tours index page
+
+Stop webserv with Ctrl+C before starting the next test.
+
+
+2. MULTIPLE WEBSITES ON THE SAME INTERFACE:PORT
+================================================
+
+Start:
+
+    ./webserv tests/port-issues/02-virtual-hosts.conf
+
+This configuration deliberately defines two websites on:
+
+    127.0.0.1:8111
+
+They have different server_name values:
+
+    first.test  -> www/index.html
+    second.test -> www/tours/tours1.html
+
+Open the same address in a browser with different Host headers is not
+normally possible through the address bar, so use curl to demonstrate the
+Host header selection:
+
+    curl -i -H "Host: first.test" http://127.0.0.1:8111/
+    curl -i -H "Host: second.test" http://127.0.0.1:8111/
+
+Expected:
+
+    first.test  -> the existing main index page
+    second.test -> the existing tours index page
+
+The two websites legitimately share one listening socket. The code groups
+server blocks with the same host and port in ServerManager::setup(), then
+RequestHandler::selectServer() chooses the matching server_name from the
+HTTP Host header.
+
+To see the default-server behavior, use an unknown Host:
+
+    curl -i -H "Host: unknown.test" http://127.0.0.1:8111/
+
+When there is no matching server_name, the first server block is used.
+
+
+3. TWO SEPARATE WEBSERV PROGRAMS ON THE SAME PORT
+==================================================
+
+Open terminal A and start:
+
+    ./webserv tests/port-issues/03-process-a.conf
+
+Leave it running. It owns 127.0.0.1:8112.
+
+In terminal B, try to start another process using the same interface and port:
+
+    ./webserv tests/port-issues/03-process-b.conf
+
+Expected result in terminal B:
+
+    Error: Cannot listen on 127.0.0.1:8112: Address already in use
+
+The second process must exit cleanly. The first process must remain running:
+
+    curl -i http://127.0.0.1:8112/
+
+Expected:
+
+    HTTP/1.1 200 OK
+
+The two processes cannot share the same TCP listening address because the
+first process already owns the interface:port binding. This is enforced by
+bind() in ServerManager::openListener(). SO_REUSEADDR helps with restarting
+after old TCP connections, but it does not allow two active servers to bind
+the same address and port.
+
+Stop terminal A with Ctrl+C after the test.
+
+
+4. DIFFERENT PROCESSES ON DIFFERENT PORTS
+=========================================
+
+This is the working alternative:
+
+Terminal A:
+
+    ./webserv tests/port-issues/04-process-a-different-port.conf
+
+Terminal B:
+
+    ./webserv tests/port-issues/04-process-b-different-port.conf
+
+Verify both:
+
+    curl -i http://127.0.0.1:8113/
+    curl -i http://127.0.0.1:8114/
+
+Expected: both processes run at the same time and both return 200 OK.
+
+
+5. WHAT TO EXPLAIN
+==================
+
+The configuration supports multiple listening ports. Each distinct host:port
+gets one listening socket and is added to the central poll() list.
+
+Multiple server blocks on the same host:port are supported as virtual hosts:
+they share the listening socket and are distinguished by the HTTP Host header.
+
+Two independent webserv processes cannot use the same host:port. The second
+bind() fails, the program prints the configuration/listening error and exits;
+it must not crash or affect the first process.
+
+Relevant code:
+
+    src/ServerManager.cpp
+        setup()          groups servers by host and port
+        openListener()   calls getaddrinfo(), socket(), bind(), listen()
+        acceptClient()   accepts clients on the selected listening socket
+
+    src/RequestHandler.cpp
+        selectServer()   selects a virtual host using the Host header

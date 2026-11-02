@@ -1,10 +1,6 @@
 #include "Webserver.hpp"
 #include <iostream>
 
-/*
- * Uso: ./webserv [archivo.conf]
- * Sin argumento se usa confs/default.conf (el subject permite un path por defecto).
- */
 int main(int argc, char **argv)
 {
     if (argc > 2)
@@ -16,11 +12,9 @@ int main(int argc, char **argv)
     {
         std::string filename = argc == 2 ? argv[1] : "confs/default.conf";
 
-        // 1) Leer y validar la configuración (lanza excepción si hay errores)
         ParseConfig parser;
         std::vector<Server> servers = parser.parse(filename);
 
-        // 2) Abrir los sockets de escucha y 3) entrar en el bucle de poll()
         ServerManager manager(servers);
         manager.setup();
         manager.run();

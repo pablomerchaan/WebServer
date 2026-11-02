@@ -1,0 +1,260 @@
+SIEGE AND STRESS TESTS
+======================
+
+These are manual tests. Run them from the repository root and use a second
+terminal to monitor the server.
+
+The tests use the existing server configuration and the existing static file
+www/uploads/.gitkeep, which is an existing empty file. The first request
+confirms that the server is running:
+
+    ./webserv confs/default.conf
+
+    curl -i http://127.0.0.1:8002/uploads/.gitkeep
+
+Expected:
+
+    HTTP/1.1 200 OK
+
+
+1. INSTALL AND CHECK SIEGE
+==========================
+
+On Debian or Ubuntu:
+
+    sudo apt-get update
+    sudo apt-get install siege
+
+On macOS with Homebrew:
+
+    brew install siege
+
+Check the installed version:
+
+    siege --version
+
+Do not use very aggressive parameters at the start. A large number of
+connections per second can exhaust the operating system's temporary client
+ports and make the result meaningless.
+
+
+2. SHORT BOUNDED BENCHMARK
+==========================
+
+Run a small test first:
+
+    siege -b -c 2 -d 1 -r 20 http://127.0.0.1:8002/uploads/.gitkeep
+
+Meaning:
+
+    -b  -> benchmark mode; no intentional delay between requests
+    -c 2 -> two concurrent clients
+    -d 1 -> maximum delay between client requests, in seconds
+    -r 20 -> each client makes 20 requests
+
+Expected:
+
+    Availability: 100.00% (or above 99.5%)
+    Failed transactions: 0 (ideally)
+
+Use the final Siege summary, not an individual request line, to report the
+availability.
+
+
+3. PROGRESSIVE CONCURRENT TESTS
+===============================
+
+Run these separately, waiting for each command to finish:
+
+    siege -b -c 5 -d 1 -r 50 http://127.0.0.1:8002/uploads/.gitkeep
+
+    siege -b -c 10 -d 1 -r 50 http://127.0.0.1:8002/uploads/.gitkeep
+
+For each run, record:
+
+    Transactions
+    Availability
+    Failed transactions
+    Response time
+    Transaction rate
+    Longest transaction
+
+The availability requirement is:
+
+    Availability > 99.5%
+
+If a test fails, reduce -c and -r first and repeat. Agree the values with
+the evaluator because the operating system and its temporary-port limits
+affect the result.
+
+
+4. LONG-RUNNING BENCHMARK
+=========================
+
+Use a moderate number of clients and a time limit:
+
+    siege -b -c 5 -d 1 -t 2M http://127.0.0.1:8002/uploads/.gitkeep
+
+Do not combine a very high -c value with a long test on macOS. The goal is to
+check that the server stays healthy without restarting, not to exhaust the
+client machine.
+
+During the run, do not restart webserv. After Siege finishes, request the
+same resource:
+
+    curl -i http://127.0.0.1:8002/uploads/.gitkeep
+
+Expected:
+
+    HTTP/1.1 200 OK
+
+This demonstrates that the server remains usable after sustained traffic.
+
+
+5. INDEFINITE-STYLE TEST
+========================
+
+Siege can run continuously with:
+
+    siege -b -c 2 -d 1 http://127.0.0.1:8002/uploads/.gitkeep
+
+This command continues until it is stopped with Ctrl+C. Leave it running for
+an agreed period, for example two or five minutes. Do not use a large -c
+value for this test.
+
+While it is running, use a second terminal:
+
+    curl -i --max-time 5 http://127.0.0.1:8002/
+
+The request must complete and return 200 OK. Stop Siege with Ctrl+C and
+confirm that the server still responds:
+
+    curl -i --max-time 5 http://127.0.0.1:8002/uploads/.gitkeep
+
+
+6. MONITOR MEMORY USAGE
+=======================
+
+First find the webserv process ID:
+
+On macOS:
+
+    pgrep -x webserv
+    ps -o pid,rss,vsz,command -p "$(pgrep -x webserv)"
+
+On Linux:
+
+    pgrep -x webserv
+    ps -o pid,rss,vsz,cmd -p "$(pgrep -x webserv)"
+
+RSS is the resident memory in kilobytes. Record it before starting Siege,
+while Siege is running, and after Siege finishes:
+
+    ps -o pid,rss,vsz,command -p "$(pgrep -x webserv)"
+
+A busy server can temporarily use more memory. The important observation is
+that memory must stabilise or return near its previous level after the load
+ends; it must not increase continuously for the same kind of requests.
+
+For a more convenient live view:
+
+macOS:
+
+    top -pid "$(pgrep -x webserv)"
+
+Linux:
+
+    top -p "$(pgrep -x webserv)"
+
+Press Ctrl+C to leave top.
+
+This is a runtime indication, not a proof of every possible C++ leak. For
+deeper leak checking on macOS, use Instruments or leaks if available. On
+Linux, Valgrind can be used if installed:
+
+    valgrind --leak-check=full --show-leak-kinds=all \
+      ./webserv confs/default.conf
+
+
+7. CHECK FOR HANGING CONNECTIONS
+================================
+
+While Siege is running, inspect established TCP connections.
+
+On macOS:
+
+    lsof -nP -a -p "$(pgrep -x webserv)" -iTCP
+
+On Linux:
+
+    ss -tanp | grep webserv
+
+The number of established connections should follow the configured
+concurrency and should not grow indefinitely after requests complete.
+
+After stopping Siege, run the command again. Listening sockets may remain,
+but old client connections should disappear after a short time.
+
+Also check that a request does not hang:
+
+    curl -i --max-time 5 http://127.0.0.1:8002/uploads/.gitkeep
+
+A timeout indicates a problem that must be investigated.
+
+
+8. CGI LOAD TEST (OPTIONAL)
+===========================
+
+After the static-file tests, run a smaller CGI test because every request
+starts a process:
+
+    siege -b -c 2 -d 1 -r 10 http://127.0.0.1:8002/cgi-bin/time.py
+
+Expected:
+
+    Availability above 99.5%
+    No server crash
+    No permanent increase in the number of child processes
+
+Check that the server still responds:
+
+    curl -i --max-time 15 http://127.0.0.1:8002/
+
+
+9. REPORT TEMPLATE
+==================
+
+Record the agreed operating-system and Siege parameters:
+
+    Operating system:
+    Siege version:
+    URL:
+    -b:
+    -c:
+    -d:
+    -r or -t:
+    Duration:
+
+Results:
+
+    Transactions:
+    Availability:
+    Failed transactions:
+    Response time:
+    Transaction rate:
+    Longest transaction:
+
+Memory:
+
+    RSS before:
+    RSS during:
+    RSS after:
+
+Connections:
+
+    Connections during load:
+    Connections after load:
+    Any hanging request:
+
+The evaluator and the team should agree on the load parameters beforehand.
+The same parameters must be used when comparing results.

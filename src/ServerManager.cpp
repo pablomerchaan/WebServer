@@ -13,11 +13,6 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-/*
- * Bandera global que pone a 0 el manejador de señales. Debe ser
- * "volatile sig_atomic_t": es el único tipo que el estándar garantiza que se
- * puede escribir de forma segura desde un manejador de señales.
- */
 static volatile sig_atomic_t g_running = 1;
 
 static void handleSignal(int)
@@ -25,11 +20,6 @@ static void handleSignal(int)
 	g_running = 0;
 }
 
-/*
- * Pone un fd en modo no bloqueante (O_NONBLOCK) y hace que se cierre solo al
- * hacer execve (FD_CLOEXEC). Lo segundo evita que los procesos CGI hereden
- * los sockets del servidor.
- */
 static bool makeNonBlocking(int fd)
 {
 	return fcntl(fd, F_SETFL, O_NONBLOCK) != -1 && fcntl(fd, F_SETFD, FD_CLOEXEC) != -1;
@@ -39,7 +29,7 @@ ServerManager::ServerManager(const std::vector<Server>& servers) : _servers(serv
 
 ServerManager::~ServerManager()
 {
-	// Borrar un Client cierra su socket y mata/recoge su CGI si lo tuviera
+
 	for (std::map<int, Client*>::iterator it = _clients.begin(); it != _clients.end(); ++it)
 		delete it->second;
 	for (size_t i = 0; i < _listeners.size(); ++i)
@@ -47,14 +37,9 @@ ServerManager::~ServerManager()
 			close(_listeners[i].fd);
 }
 
-/* ======================================================================
- *  Arranque: crear los sockets de escucha
- * ====================================================================== */
-
 void ServerManager::setup()
 {
-	// 1) Agrupar los servers por host:puerto. Si dos bloques "server" escuchan
-	//    en el mismo sitio, comparten socket (solo se puede hacer bind una vez).
+
 	for (size_t i = 0; i < _servers.size(); ++i)
 	{
 		const std::vector<int>& ports = _servers[i].getPorts();
@@ -81,7 +66,7 @@ void ServerManager::setup()
 			}
 		}
 	}
-	// 2) Abrir un socket por cada host:puerto distinto
+
 	for (size_t l = 0; l < _listeners.size(); ++l)
 	{
 		openListener(_listeners[l]);
@@ -94,8 +79,6 @@ void ServerManager::openListener(Listener& listener)
 {
 	std::string where = listener.host + ":" + toString(listener.port);
 
-	// getaddrinfo traduce el host ("localhost", "127.0.0.1", "0.0.0.0"...)
-	// a una dirección binaria lista para bind(). AI_PASSIVE = para escuchar.
 	struct addrinfo hints;
 	std::memset(&hints, 0, sizeof(hints));
 	hints.ai_family = AF_INET;
@@ -112,8 +95,7 @@ void ServerManager::openListener(Listener& listener)
 		freeaddrinfo(result);
 		throw std::runtime_error("socket(" + where + ") failed");
 	}
-	// SO_REUSEADDR: permite reiniciar el servidor sin esperar a que el
-	// sistema libere el puerto (estado TIME_WAIT de conexiones anteriores)
+
 	int enable = 1;
 	if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(enable)) == -1 ||
 		bind(fd, result->ai_addr, result->ai_addrlen) == -1 ||
@@ -127,30 +109,22 @@ void ServerManager::openListener(Listener& listener)
 	listener.fd = fd;
 }
 
-/* ======================================================================
- *  Bucle principal
- * ====================================================================== */
-
 void ServerManager::run()
 {
-	// Ctrl+C / kill: salir del bucle limpiamente (cerrando fds y matando CGIs)
+
 	std::signal(SIGINT, handleSignal);
 	std::signal(SIGTERM, handleSignal);
-	// Si el cliente cierra mientras le escribimos, send() generaría SIGPIPE y
-	// mataría el servidor. Lo ignoramos: send() simplemente devolverá -1.
+
 	std::signal(SIGPIPE, SIG_IGN);
 
 	while (g_running)
 	{
 		buildPollList();
-		// Timeout de 1000 ms: aunque no haya actividad, volvemos a revisar
-		// timeouts de clientes y CGIs al menos una vez por segundo.
+
 		int ready = poll(&_pollfds[0], _pollfds.size(), 1000);
 		if (ready < 0)
-			continue; // normalmente EINTR por una señal: g_running decide si seguimos
+			continue;
 
-		// Clientes que hay que cerrar en esta vuelta. Se borran al final para
-		// que ninguna otra entrada de esta misma vuelta apunte a memoria liberada.
 		std::set<Client*> to_close;
 
 		for (size_t i = 0; i < _pollfds.size() && ready > 0; ++i)
@@ -174,9 +148,9 @@ void ServerManager::run()
 				if (revents & (POLLERR | POLLNVAL))
 					keep = false;
 				else if (revents & POLLIN)
-					keep = entry.client->onReadable();     // un único recv()
+					keep = entry.client->onReadable();
 				else if (revents & POLLOUT)
-					keep = entry.client->onWritable();     // un único send()
+					keep = entry.client->onWritable();
 				else if (revents & POLLHUP)
 					keep = false;
 				if (!keep)
@@ -184,20 +158,19 @@ void ServerManager::run()
 			}
 			else
 			{
-				// Pipe de un CGI. Comprobamos que el fd sigue siendo el del CGI
-				// actual: pudo cerrarse antes en esta misma vuelta.
+
 				Cgi* cgi = entry.client->getCgi();
 				if (cgi == NULL)
 					continue;
 				if (entry.type == CGI_INPUT && cgi->getInputFd() == _pollfds[i].fd)
 				{
 					if (revents & POLLOUT)
-						entry.client->onCgiWritable();     // un único write()
+						entry.client->onCgiWritable();
 					else
-						cgi->closeInput();                  // el script cerró su stdin
+						cgi->closeInput();
 				}
 				else if (entry.type == CGI_OUTPUT && cgi->getOutputFd() == _pollfds[i].fd)
-					entry.client->onCgiReadable();         // un único read() (0 = EOF)
+					entry.client->onCgiReadable();
 			}
 		}
 		for (std::set<Client*>::iterator it = to_close.begin(); it != to_close.end(); ++it)
@@ -222,14 +195,6 @@ void ServerManager::addPollEntry(int fd, short events, EntryType type, size_t li
 	_entries.push_back(entry);
 }
 
-/*
- * Reconstruye desde cero la lista de fds a vigilar. Es más simple que ir
- * añadiendo/quitando entradas y con pocos cientos de conexiones el coste es
- * despreciable. Cada fd solo pide el evento que su dueño necesita AHORA:
- *  - cliente leyendo   -> POLLIN
- *  - cliente escribiendo -> POLLOUT
- *  - cliente esperando a su CGI -> nada en el socket; se vigilan las pipes
- */
 void ServerManager::buildPollList()
 {
 	_pollfds.clear();
@@ -253,10 +218,6 @@ void ServerManager::buildPollList()
 	}
 }
 
-/* ======================================================================
- *  Gestión de clientes
- * ====================================================================== */
-
 void ServerManager::acceptClient(const Listener& listener)
 {
 	struct sockaddr_in address;
@@ -269,7 +230,7 @@ void ServerManager::acceptClient(const Listener& listener)
 		close(fd);
 		return;
 	}
-	// inet_ntoa no está permitida: formateamos la IP a mano (a.b.c.d)
+
 	unsigned long ip = ntohl(address.sin_addr.s_addr);
 	std::string ip_text = toString((ip >> 24) & 0xFF) + "." + toString((ip >> 16) & 0xFF) + "." +
 						  toString((ip >> 8) & 0xFF) + "." + toString(ip & 0xFF);
@@ -279,7 +240,7 @@ void ServerManager::acceptClient(const Listener& listener)
 void ServerManager::closeClient(Client* client)
 {
 	_clients.erase(client->getFd());
-	delete client; // cierra el socket y para el CGI si sigue vivo
+	delete client;
 }
 
 void ServerManager::checkTimeouts()

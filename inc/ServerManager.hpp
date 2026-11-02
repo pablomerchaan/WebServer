@@ -8,23 +8,10 @@
 #include "Client.hpp"
 #include "Server.hpp"
 
-/*
- * ServerManager: dueño de todos los sockets y del bucle principal.
- *
- * El subject exige UN SOLO poll() para todo el I/O (sockets de escucha,
- * clientes y pipes de CGI) y que nunca se haga read/recv/write/send sin que
- * poll() haya dicho antes que ese fd está listo. Esta clase es la que cumple
- * esa regla: es el único sitio donde se llama a poll() y desde aquí se avisa
- * a cada Client de que puede leer o escribir.
- */
 class ServerManager
 {
 private:
-    /*
-     * Un socket de escucha (host:puerto). Varios bloques "server" pueden
-     * compartir el mismo host:puerto (virtual hosts): todos van en "servers"
-     * y luego la cabecera Host decide cuál atiende cada petición.
-     */
+
     struct Listener
     {
         int fd;
@@ -33,10 +20,6 @@ private:
         std::vector<const Server*> servers;
     };
 
-    /*
-     * Qué hay detrás de cada entrada del array de pollfd. Se guarda en un
-     * vector paralelo a _pollfds para saber a quién entregar cada evento.
-     */
     enum EntryType
     {
         LISTENER,
@@ -47,13 +30,13 @@ private:
     struct Entry
     {
         EntryType type;
-        size_t listener;  // índice en _listeners (solo para LISTENER)
-        Client* client;   // cliente dueño (para CLIENT, CGI_INPUT y CGI_OUTPUT)
+        size_t listener;
+        Client* client;
     };
 
     const std::vector<Server>& _servers;
     std::vector<Listener> _listeners;
-    std::map<int, Client*> _clients;     // fd del socket -> cliente
+    std::map<int, Client*> _clients;
     std::vector<pollfd> _pollfds;
     std::vector<Entry> _entries;
 
@@ -71,9 +54,8 @@ public:
     explicit ServerManager(const std::vector<Server>& servers);
     ~ServerManager();
 
-    // Crea y pone a escuchar todos los sockets (lanza excepción si falla)
     void setup();
-    // Bucle principal: no vuelve hasta recibir SIGINT/SIGTERM
+
     void run();
 };
 
